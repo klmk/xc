@@ -1,0 +1,49 @@
+{
+  "name": "ai-dev-platform",
+  "version": "0.1.0",
+  "description": "AI-driven full-stack software development platform with multi-agent collaboration",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "playwright test",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "code-generation",
+    "automation",
+    "langgraph",
+    "deepseek"
+  ],
+  "author": "AI Dev Team",
+  "license": "MIT",
+  "dependencies": {
+    "@langchain/core": "^0.3.0",
+    "@langchain/langgraph": "^0.2.0",
+    "openai": "^4.77.0",
+    "playwright": "^1.49.0",
+    "simple-git": "^3.27.0",
+    "zod": "^3.24.0",
+    "uuid": "^11.0.0",
+    "chalk": "^5.3.0",
+    "ora": "^8.1.0",
+    "inquirer": "^12.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/uuid": "^10.0.0",
+    "@types/inquirer": "^9.0.0",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0",
+    "eslint": "^9.17.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

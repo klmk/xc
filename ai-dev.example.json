@@ -1,0 +1,68 @@
+{
+  "$schema": "./ai-dev.schema.json",
+  "name": "my-project",
+  "version": "1.0.0",
+  "description": "项目描述",
+
+  "techStack": {
+    "language": "typescript",
+    "framework": "react",
+    "backend": "node",
+    "database": "none",
+    "testFramework": "vitest",
+    "styling": "css"
+  },
+
+  "codingStandards": {
+    "indentSize": 2,
+    "indentStyle": "space",
+    "semiColons": true,
+    "singleQuotes": true,
+    "trailingCommas": "all",
+    "maxLineLength": 100,
+    "namingConvention": "camelCase"
+  },
+
+  "agents": {
+    "orchestrator": {
+      "maxRetries": 3,
+      "autoApprove": false
+    },
+    "developer": {
+      "maxRetries": 3,
+      "maxFilesPerTask": 10,
+      "autoCommit": true
+    },
+    "tester": {
+      "coverageThreshold": 80,
+      "runE2E": true,
+      "e2eTimeout": 30000
+    },
+    "reviewer": {
+      "autoApprove": false,
+      "minScore": 70
+    }
+  },
+
+  "hooks": {
+    "SessionStart": [],
+    "PreToolUse": [],
+    "PostToolUse": [],
+    "PreCommit": [],
+    "PostTest": [],
+    "OnError": []
+  },
+
+  "conventions": {
+    "commitPrefixes": {
+      "feature": "feat",
+      "bugfix": "fix",
+      "refactor": "refactor",
+      "test": "test",
+      "docs": "docs",
+      "chore": "chore"
+    },
+    "branchNaming": "feature/{task-name}",
+    "prDescription": "auto-generated"
+  }
+}
