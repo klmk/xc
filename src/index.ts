@@ -23,9 +23,11 @@ import { FileSystemTool } from './tools/file-system.js';
 import { GitClient } from './tools/git-client.js';
 import { Sandbox } from './tools/sandbox.js';
 import { OrchestratorAgent } from './agents/orchestrator.js';
+import { ExplorerAgent } from './agents/explorer.js';
+import { ArchitectAgent } from './agents/architect.js';
 import { DeveloperAgent } from './agents/developer.js';
-import { TesterAgent } from './agents/tester.js';
-import { ReviewerAgent } from './agents/reviewer.js';
+import { VerifierAgent } from './agents/verifier.js';
+import { EvolverAgent } from './agents/evolver.js';
 
 // ─── 配置 ─────────────────────────────────────────────────────────────────
 
@@ -119,39 +121,56 @@ class AIDevPlatform {
         projectConfig,
       });
 
+      const explorer = new ExplorerAgent({
+        messageBus,
+        llm,
+        logger: this.logger.createScoped('Explorer'),
+        projectConfig,
+      });
+
+      const architect = new ArchitectAgent({
+        messageBus,
+        llm,
+        fs,
+        logger: this.logger.createScoped('Architect'),
+        projectConfig,
+      });
+
       const developer = new DeveloperAgent({
         messageBus,
         llm,
         fs,
         git,
         sandbox,
-        logger: this.logger.createScoped('Developer'),
+        logger: this.logger.createScoped('Builder'),
         projectConfig,
       });
 
-      const tester = new TesterAgent({
+      const verifier = new VerifierAgent({
         messageBus,
         llm,
         fs,
         sandbox,
-        logger: this.logger.createScoped('Tester'),
+        logger: this.logger.createScoped('Verifier'),
         projectConfig,
       });
 
-      const reviewer = new ReviewerAgent({
+      const evolver = new EvolverAgent({
         messageBus,
         llm,
         fs,
-        logger: this.logger.createScoped('Reviewer'),
+        logger: this.logger.createScoped('Evolver'),
         projectConfig,
       });
 
       // 6. 初始化所有 Agent
       await Promise.all([
         orchestrator.initialize(),
+        explorer.initialize(),
+        architect.initialize(),
         developer.initialize(),
-        tester.initialize(),
-        reviewer.initialize(),
+        verifier.initialize(),
+        evolver.initialize(),
       ]);
 
       spinner.succeed(chalk.green('平台初始化完成'));
@@ -175,9 +194,11 @@ class AIDevPlatform {
       // 10. 关闭所有 Agent
       await Promise.all([
         orchestrator.shutdown(),
+        explorer.shutdown(),
+        architect.shutdown(),
         developer.shutdown(),
-        tester.shutdown(),
-        reviewer.shutdown(),
+        verifier.shutdown(),
+        evolver.shutdown(),
       ]);
 
     } catch (error) {
@@ -251,8 +272,8 @@ class AIDevPlatform {
   private printBanner(): void {
     console.log('');
     console.log(chalk.blue.bold('  ╔══════════════════════════════════════╗'));
-    console.log(chalk.blue.bold('  ║     AI Dev Platform v2.0            ║'));
-    console.log(chalk.blue.bold('  ║     多Agent协作自动化开发           ║'));
+    console.log(chalk.blue.bold('  ║     AI Dev Platform v3.0            ║'));
+    console.log(chalk.blue.bold('  ║     AI原生五角色自动化开发           ║'));
     console.log(chalk.blue.bold('  ╚══════════════════════════════════════╝'));
     console.log('');
   }
