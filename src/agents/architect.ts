@@ -19,13 +19,11 @@
 import { randomUUID } from 'node:crypto';
 import type { MessageBus, Message, MessageType } from '../core/message-bus.js';
 import type {
-  AgentBase,
   AgentConfig,
   TaskDescriptor,
   TaskResult,
 } from '../core/agent-base.js';
 import { AgentBase as AgentBaseClass } from '../core/agent-base.js';
-import type { Logger } from '../core/logger.js';
 import type { LLMClient } from '../tools/llm-client.js';
 import type { FileSystemTool } from '../tools/file-system.js';
 import type { ResearchReport } from './explorer.js';
@@ -1049,11 +1047,11 @@ export class ArchitectAgent extends AgentBaseClass {
     const payload = message.payload as { correlationId?: string; response?: string };
     if (payload.correlationId && this.pendingConfirmationResolvers.has(payload.correlationId)) {
       const resolver = this.pendingConfirmationResolvers.get(payload.correlationId)!;
-      const confirmed = payload.response?.toLowerCase().includes('confirm') ||
+      const confirmed = !!(payload.response?.toLowerCase().includes('confirm') ||
                         payload.response?.toLowerCase().includes('approve') ||
                         payload.response?.toLowerCase().includes('yes') ||
                         payload.response?.toLowerCase().includes('确认') ||
-                        payload.response?.toLowerCase().includes('批准');
+                        payload.response?.toLowerCase().includes('批准'));
       resolver(confirmed);
       this.pendingConfirmationResolvers.delete(payload.correlationId);
       this.logger.info('收到人工确认', { correlationId: payload.correlationId, confirmed });
@@ -1162,7 +1160,7 @@ export class ArchitectAgent extends AgentBaseClass {
     this.logger.info('处理规格变更', { changeId: change.id, affectedModules: change.affectedModules });
 
     // 分析变更影响
-    const impact = await this.analyzeChangeImpact(existing, change);
+    await this.analyzeChangeImpact(existing, change);
 
     // 更新受影响的模块
     const updatedModules = [...existing.modules];
@@ -1261,7 +1259,7 @@ export class ArchitectAgent extends AgentBaseClass {
    * 设计架构概览
    */
   private async designArchitectureOverview(
-    request: ArchitectureRequest,
+    _request: ArchitectureRequest,
     context: string,
   ): Promise<ArchitectureOverview> {
     const prompt = `基于以下项目信息，设计系统架构概览。
@@ -1711,7 +1709,7 @@ ${context.substring(0, 800)}
   private async updateModuleSpec(
     module: ModuleSpecification,
     change: ChangeRequest,
-    request: ArchitectureRequest,
+    _request: ArchitectureRequest,
   ): Promise<ModuleSpecification> {
     const prompt = `根据变更请求更新模块规格。
 

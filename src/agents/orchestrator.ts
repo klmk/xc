@@ -17,9 +17,9 @@
 
 import { randomUUID } from 'node:crypto';
 import type { MessageBus, Message, MessageType } from '../core/message-bus.js';
-import type { AgentBase, AgentConfig, TaskDescriptor, TaskResult, ToolDefinition, ToolContext, ToolResult } from '../core/agent-base.js';
+import type { AgentConfig, TaskDescriptor, TaskResult } from '../core/agent-base.js';
 import { AgentBase as AgentBaseClass } from '../core/agent-base.js';
-import type { TaskExecutor, TaskNode, ExecutionResult } from '../core/task-executor.js';
+import type { TaskExecutor, TaskNode } from '../core/task-executor.js';
 import { TaskExecutor as TaskExecutorClass } from '../core/task-executor.js';
 import type { Logger } from '../core/logger.js';
 import type { LLMClient } from '../tools/llm-client.js';
@@ -27,9 +27,7 @@ import type { FileSystemTool } from '../tools/file-system.js';
 import type { GitClient } from '../tools/git-client.js';
 import type {
   PRDDocument,
-  Task,
   TaskType,
-  ProjectState,
   ProjectStatus,
   HumanInterventionRequest,
   InterventionType,
@@ -535,7 +533,7 @@ Respond in JSON format with an array of tasks.`;
       dependencies: t.dependencies || [],
       maxRetries: t.maxRetries || 3,
       currentRetry: 0,
-      targetAgent: this.resolveAgentId(t.targetAgent, t.type),
+      targetAgentId: this.resolveAgentId(t.targetAgent, t.type),
     }));
 
     // Validate dependency graph
@@ -579,7 +577,7 @@ Respond in JSON format with an array of tasks.`;
   /**
    * Execute the planned tasks using TaskExecutor for parallel execution.
    */
-  private async executePlan(task: TaskDescriptor): Promise<TaskResult> {
+  private async executePlan(_task: TaskDescriptor): Promise<TaskResult> {
     if (!this.projectState || this.projectState.tasks.length === 0) {
       return this.createFailureResult('No tasks to execute');
     }
@@ -601,7 +599,7 @@ Respond in JSON format with an array of tasks.`;
         },
         metadata: {
           type: orchTask.type,
-          targetAgent: orchTask.targetAgent,
+          targetAgentId: orchTask.targetAgentId,
           maxRetries: orchTask.maxRetries,
         },
       }),
@@ -618,10 +616,10 @@ Respond in JSON format with an array of tasks.`;
       switch (taskResult.status) {
         case 'completed':
           orchTask.status = 'completed';
-          orchTask.result = taskResult.result;
+          orchTask.result = taskResult.result as TaskResult | undefined;
           logs.push(`[COMPLETED] ${orchTask.title}`);
-          if (taskResult.result?.artifacts) {
-            artifacts.push(...taskResult.result.artifacts);
+          if ((taskResult.result as TaskResult | undefined)?.artifacts) {
+            artifacts.push(...((taskResult.result as TaskResult).artifacts ?? []));
           }
           break;
         case 'failed':
@@ -724,7 +722,7 @@ Respond in JSON format with an array of tasks.`;
 
     this.logger.info('Dispatching task to agent', {
       taskId: orchTask.id,
-      targetAgent: orchTask.targetAgent,
+      targetAgentId: orchTask.targetAgentId,
       type: orchTask.type,
     });
 
@@ -739,7 +737,7 @@ Respond in JSON format with an array of tasks.`;
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.logger.error('Task dispatch failed', {
         taskId: orchTask.id,
-        targetAgent: orchTask.targetAgent,
+        targetAgentId: orchTask.targetAgentId,
         error: errorMessage,
       });
       return this.createFailureResult(`Dispatch failed: ${errorMessage}`);

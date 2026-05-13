@@ -1,5 +1,5 @@
 import { promises as fs, existsSync, mkdirSync } from 'fs';
-import { dirname, join, relative, resolve } from 'path';
+import { dirname, join, resolve } from 'path';
 import type { CodeFile } from '../types/index.js';
 
 export class FileSystemTool {

@@ -123,7 +123,6 @@ export class EvolverAgent extends AgentBase {
   private fs: FileSystemTool;
   private specPath: string;
   private architecturePath: string;
-  private maxRetries: number;
 
   /** 当前变更的快照存储，用于回滚 */
   private snapshots: Map<string, ChangeSnapshot>;
@@ -152,7 +151,6 @@ export class EvolverAgent extends AgentBase {
     this.fs = fs;
     this.specPath = config.specPath ?? 'docs/PRD.md';
     this.architecturePath = config.architecturePath ?? 'docs/ARCHITECTURE.md';
-    this.maxRetries = config.maxRetries ?? 3;
     this.snapshots = new Map();
     this.currentChecklist = [];
   }
@@ -265,7 +263,7 @@ export class EvolverAgent extends AgentBase {
   private async handleChangeRequest(task: TaskDescriptor): Promise<TaskResult> {
     this.logger.info('Processing change request', { title: task.title });
 
-    const payload = task.payload as ChangeRequestPayload;
+    const payload = task.payload as unknown as ChangeRequestPayload;
     const logs: string[] = [];
     const changeId = payload.changeId ?? task.id;
 
@@ -354,7 +352,7 @@ export class EvolverAgent extends AgentBase {
   private async performImpactAnalysis(task: TaskDescriptor): Promise<TaskResult> {
     this.logger.info('Performing standalone impact analysis', { title: task.title });
 
-    const payload = task.payload as ChangeRequestPayload;
+    const payload = task.payload as unknown as ChangeRequestPayload;
     const logs: string[] = [];
 
     const analysis = await this.analyzeImpact(
@@ -657,7 +655,7 @@ Provide the complete updated specification document content.`;
    * 通过 MessageBus 向 Builder agent 分发任务。
    */
   private async coordinateChangeApplication(
-    task: TaskDescriptor,
+    _task: TaskDescriptor,
     analysis: ImpactAnalysis,
   ): Promise<TaskResult> {
     const logs: string[] = [];
@@ -928,7 +926,7 @@ Respond in JSON format:
   /**
    * 执行回归验证：运行测试并检查模块间一致性。
    */
-  private async verifyRegression(changeId: string): Promise<RegressionResult> {
+  private async verifyRegression(_changeId: string): Promise<RegressionResult> {
     const logs: string[] = [];
 
     // 1. 运行测试套件
@@ -1073,7 +1071,7 @@ Set "passed" to true only if NO consistency issues are found.`;
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.logger.warn('Cross-module consistency check failed', { error: errorMessage });
       // LLM 失败时默认通过（避免误报）
-      return { passed: true, issues: [] };
+      return { passed: true, issues: issues };
     }
   }
 

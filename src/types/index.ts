@@ -159,6 +159,7 @@ export interface TestFailure {
   testName: string;
   error: string;
   stackTrace?: string;
+  suggestion?: string;
 }
 
 // 代码文件

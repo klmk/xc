@@ -14,7 +14,6 @@
  * Communicates exclusively through MessageBus.
  */
 
-import { randomUUID } from 'node:crypto';
 import type { MessageBus, Message, MessageType } from '../core/message-bus.js';
 import type { AgentConfig, TaskDescriptor, TaskResult } from '../core/agent-base.js';
 import { AgentBase } from '../core/agent-base.js';

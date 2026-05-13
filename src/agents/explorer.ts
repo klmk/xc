@@ -19,13 +19,11 @@
 import { randomUUID } from 'node:crypto';
 import type { MessageBus, Message, MessageType } from '../core/message-bus.js';
 import type {
-  AgentBase,
   AgentConfig,
   TaskDescriptor,
   TaskResult,
 } from '../core/agent-base.js';
 import { AgentBase as AgentBaseClass } from '../core/agent-base.js';
-import type { Logger } from '../core/logger.js';
 import type { LLMClient } from '../tools/llm-client.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -580,7 +578,6 @@ export class ExplorerAgent extends AgentBaseClass {
   private handleHumanResponse(message: Message): void {
     const payload = message.payload as { correlationId?: string; response?: string };
     if (payload.correlationId && this.pendingResearchResolvers.has(payload.correlationId)) {
-      const resolver = this.pendingResearchResolvers.get(payload.correlationId)!;
       // 人工回复不直接解析为报告，而是作为额外信息记录
       this.logger.info('收到人工回复', { correlationId: payload.correlationId });
       this.pendingResearchResolvers.delete(payload.correlationId);
@@ -726,9 +723,9 @@ export class ExplorerAgent extends AgentBaseClass {
     const prompt = `你是一个技术研究员。根据以下信息生成 5-8 个精确的搜索查询。
 
 项目需求: ${request.requirement}
-技术栈: ${request.techStack.join(', ') || '未指定'}
-重点领域: ${request.focusAreas.join(', ') || '自动推断'}
-竞品: ${request.competitorProducts.join(', ') || '自动识别'}
+技术栈: ${(request.techStack ?? []).join(', ') || '未指定'}
+重点领域: ${(request.focusAreas ?? []).join(', ') || '自动推断'}
+竞品: ${(request.competitorProducts ?? []).join(', ') || '自动识别'}
 研究轮次: ${round}
 本轮重点: ${focus}
 
@@ -846,7 +843,7 @@ ${queries.map((q, i) => `${i + 1}. ${q}`).join('\n')}
     const prompt = `分析以下搜索结果，提取结构化信息。
 
 项目需求: ${request.requirement.substring(0, 200)}
-技术栈: ${request.techStack.join(', ') || '未指定'}
+技术栈: ${(request.techStack ?? []).join(', ') || '未指定'}
 研究重点: ${focus}
 
 搜索结果:
@@ -936,7 +933,7 @@ ${highRelevanceResults.map((r, i) => `${i + 1}. [${r.source}] ${r.title}\n   URL
     const prompt = `基于以下项目信息，发现用户未明确提及的隐含需求。
 
 项目需求: ${request.requirement}
-技术栈: ${request.techStack.join(', ') || '未指定'}
+技术栈: ${(request.techStack ?? []).join(', ') || '未指定'}
 已发现的最佳实践: ${currentReport.bestPractices.map((p) => p.title).join(', ')}
 已发现的陷阱: ${currentReport.knownPitfalls.map((p) => p.title).join(', ')}
 竞品功能: ${currentReport.competitorAnalysis.flatMap((c) => c.keyFeatures).join(', ')}
@@ -989,7 +986,7 @@ ${highRelevanceResults.map((r, i) => `${i + 1}. [${r.source}] ${r.title}\n   URL
     const prompt = `基于研究结果，为项目提供技术选型建议。
 
 项目需求: ${request.requirement}
-当前技术栈: ${request.techStack.join(', ') || '未指定'}
+当前技术栈: ${(request.techStack ?? []).join(', ') || '未指定'}
 竞品技术栈: ${report.competitorAnalysis.map((c) => `${c.productName}: ${c.techStack.join(', ')}`).join('; ')}
 开源参考: ${report.openSourceReferences.map((r) => `${r.name} (${r.language})`).join(', ')}
 

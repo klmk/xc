@@ -259,13 +259,18 @@ export class DeveloperAgent extends AgentBase {
       `Feature developed: ${task.title}. Created ${writtenFiles.length} files.`,
     );
 
+    const filesModified: string[] = [];
+    for (const f of codeResult.files) {
+      if (f.path && await this.wasFileExisting(f.path).catch(() => false)) {
+        filesModified.push(f.path);
+      }
+    }
+
     return this.createSuccessResult(
       {
         explanation: codeResult.explanation,
         filesCreated: writtenFiles,
-        filesModified: codeResult.files
-          .filter(f => f.path && await this.wasFileExisting(f.path).catch(() => false))
-          .map(f => f.path),
+        filesModified,
       },
       writtenFiles,
       [
@@ -294,7 +299,7 @@ export class DeveloperAgent extends AgentBase {
 
     if (failures && failures.length > 0) {
       errorContext = failures
-        .map(f => `Test: ${f.testName}\nError: ${f.error}\nFile: ${f.file ?? 'unknown'}\nStack: ${f.stackTrace ?? 'N/A'}`)
+        .map(f => `Test: ${f.testName}\nError: ${f.error}\nFile: ${'file' in f ? (f as unknown as { file?: string }).file ?? 'unknown' : 'unknown'}\nStack: ${f.stackTrace ?? 'N/A'}`)
         .join('\n\n---\n\n');
     } else if (reviewIssues && reviewIssues.length > 0) {
       errorContext = reviewIssues
@@ -539,9 +544,9 @@ Respond in JSON format:
 
     // Extract tech stack from PRD or config
     context.techStack = context.prd?.techStack ?? {
-      frontend: this.techStack.frontend,
-      backend: this.techStack.backend,
-      database: this.techStack.database,
+      frontend: this.techStack?.frontend,
+      backend: this.techStack?.backend,
+      database: this.techStack?.database,
     };
 
     // Extract acceptance criteria

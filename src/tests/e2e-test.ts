@@ -1,6 +1,5 @@
 import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import type { TestResult, TestFailure } from '../types/index.js';
-import { Sandbox } from '../tools/sandbox.js';
 
 export interface E2ETestConfig {
   baseUrl: string;
@@ -218,7 +217,7 @@ export class E2ETestRunner {
   /**
    * 从自然语言生成测试用例（使用LLM）
    */
-  async generateTestCases(requirement: string, prdFeatures: string[]): Promise<TestCase[]> {
+  async generateTestCases(_requirement: string, prdFeatures: string[]): Promise<TestCase[]> {
     // 这里会调用LLM生成测试用例
     // 简化版本：返回基于PRD特性的默认测试用例
     const testCases: TestCase[] = [];

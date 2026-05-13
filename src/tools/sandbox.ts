@@ -16,14 +16,7 @@ export class Sandbox {
   private config: SandboxConfig;
 
   constructor(config: SandboxConfig) {
-    this.config = {
-      allowedCommands: ['node', 'npm', 'npx', 'git', 'ls', 'cat', 'echo', 'mkdir', 'touch'],
-      networkEnabled: false,
-      memoryLimit: '512m',
-      cpuLimit: '1.0',
-      timeout: 60000,
-      ...config,
-    };
+    this.config = config;
   }
 
   /**

@@ -16,7 +16,6 @@
  * Test results are always structured objects (never plain strings).
  */
 
-import { randomUUID } from 'node:crypto';
 import type { MessageBus, Message, MessageType } from '../core/message-bus.js';
 import type { AgentConfig, TaskDescriptor, TaskResult } from '../core/agent-base.js';
 import { AgentBase } from '../core/agent-base.js';
@@ -25,10 +24,8 @@ import type { LLMClient } from '../tools/llm-client.js';
 import type { FileSystemTool } from '../tools/file-system.js';
 import type { Sandbox } from '../tools/sandbox.js';
 import type {
-  TestResult as TypesTestResult,
   TestFailure,
   AcceptanceCriterion,
-  PRDDocument,
 } from '../types/index.js';
 import { TESTER_SYSTEM_PROMPT } from '../prompts/system-prompts.js';
 
@@ -79,7 +76,6 @@ export class TesterAgent extends AgentBase {
   private fs: FileSystemTool;
   private sandbox: Sandbox;
   private testFramework: string;
-  private coverageThreshold: number;
 
   constructor(
     config: TesterConfig,
@@ -104,7 +100,6 @@ export class TesterAgent extends AgentBase {
     this.fs = fs;
     this.sandbox = sandbox;
     this.testFramework = config.testFramework ?? 'vitest';
-    this.coverageThreshold = config.coverageThreshold ?? 80;
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────────
