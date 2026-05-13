@@ -1,229 +1,172 @@
-import { useEffect, useState, useCallback } from 'react';
-import type { PlatformState, Task, Agent, Message } from '../types';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import type { PlatformState, ChatMessage, Project, Task } from '../types';
 
-// 动态获取 WebSocket URL
-function getWebSocketUrl(): string {
-  // 如果是开发环境，使用 localhost:4001
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return 'ws://localhost:4001/ws';
-  }
-  // 生产环境，使用当前域名
+const mockProjects: Project[] = [
+  {
+    id: 'proj-001',
+    name: '电影观看平台',
+    description: '在线电影浏览和播放平台',
+    status: 'active',
+    createdAt: '2026-05-13T08:00:00Z',
+    previewUrl: 'https://klmk.github.io/xcmove/',
+    tasks: [
+      { id: 't1', title: '需求分析', description: '分析功能需求和技术方案', status: 'done', agentId: 'a1', agentName: 'Explorer', progress: 100 },
+      { id: 't2', title: '架构设计', description: '设计项目架构和模块划分', status: 'done', agentId: 'a2', agentName: 'Architect', progress: 100 },
+      { id: 't3', title: '首页开发', description: '轮播图、电影列表、分类导航', status: 'done', agentId: 'a3', agentName: 'Builder', progress: 100 },
+      {
+        id: 't4', title: '详情页开发', description: '电影详情、评分、推荐', status: 'active', agentId: 'a3', agentName: 'Builder', progress: 65, subtasks: [
+          { id: 's1', title: '海报展示', progress: 100, status: 'done' },
+          { id: 's2', title: '评分系统', progress: 80, status: 'active' },
+          { id: 's3', title: '相关推荐', progress: 20, status: 'active' },
+        ],
+      },
+      { id: 't5', title: '播放器集成', description: 'Video.js播放器', status: 'queued', agentId: 'a3', agentName: 'Builder', progress: 0 },
+      { id: 't6', title: '测试验证', description: 'E2E测试和功能验证', status: 'pending', agentId: 'a4', agentName: 'Verifier', progress: 0 },
+    ],
+  },
+  {
+    id: 'proj-002',
+    name: '待办应用',
+    description: '简单的任务管理工具',
+    status: 'completed',
+    createdAt: '2026-05-12T10:00:00Z',
+    tasks: [
+      { id: 't7', title: '需求分析', description: '', status: 'done', agentId: 'a1', agentName: 'Explorer', progress: 100 },
+      { id: 't8', title: '开发', description: '', status: 'done', agentId: 'a3', agentName: 'Builder', progress: 100 },
+      { id: 't9', title: '测试', description: '', status: 'done', agentId: 'a4', agentName: 'Verifier', progress: 100 },
+    ],
+  },
+];
+
+const mockMessages: ChatMessage[] = [
+  { id: 'm1', role: 'user', content: '帮我做一个电影观看平台，要有首页推荐、电影详情、搜索功能', timestamp: '2026-05-13T08:00:00Z' },
+  { id: 'm2', role: 'assistant', content: '好的，我来分析你的需求并开始开发。首先让我调研一下类似产品的最佳实践...', timestamp: '2026-05-13T08:00:30Z' },
+  { id: 'm3', role: 'system', content: 'Explorer 正在调研竞品和最佳实践...', timestamp: '2026-05-13T08:01:00Z', type: 'text' },
+  { id: 'm4', role: 'assistant', content: '需求分析完成！我为你规划了以下功能模块：\n\n1. 首页 - 轮播图 + 分类推荐\n2. 电影详情页 - 海报、评分、剧情简介\n3. 搜索页 - 关键词搜索 + 分类筛选\n4. 播放器 - 在线视频播放\n\n现在开始开发，你可以在右侧实时预览效果。', timestamp: '2026-05-13T08:05:00Z' },
+  { id: 'm5', role: 'assistant', content: '当前开发进度：', timestamp: '2026-05-13T09:00:00Z', type: 'progress', progressData: mockProjects[0].tasks },
+  { id: 'm6', role: 'user', content: '搜索功能加上按年份筛选', timestamp: '2026-05-13T09:30:00Z' },
+  { id: 'm7', role: 'assistant', content: '收到，我正在为搜索页添加年份筛选功能。预计3分钟完成。', timestamp: '2026-05-13T09:30:30Z' },
+];
+
+const mockAgents = [
+  { id: 'a1', name: 'Explorer', status: 'idle' as const },
+  { id: 'a2', name: 'Architect', status: 'idle' as const },
+  { id: 'a3', name: 'Builder', status: 'busy' as const, currentTask: '详情页开发' },
+  { id: 'a4', name: 'Verifier', status: 'idle' as const },
+  { id: 'a5', name: 'Reviewer', status: 'idle' as const },
+  { id: 'a6', name: 'Deployer', status: 'idle' as const },
+];
+
+const initialState: PlatformState = {
+  projects: mockProjects,
+  currentProject: mockProjects[0],
+  messages: mockMessages,
+  agents: mockAgents,
+  connected: false,
+};
+
+function getWsUrl(): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  if (import.meta.env.DEV) {
+    return 'ws://localhost:8080/ws';
+  }
   return `${protocol}//${window.location.host}/ws`;
 }
 
-// 模拟数据 - 当后端不可用时显示
-const mockTasks: Task[] = [
-  {
-    id: 'task-001',
-    title: '实现用户认证模块',
-    description: 'JWT 登录、注册、密码重置',
-    status: 'done',
-    agentId: 'agent-001',
-    agentName: 'Builder',
-    progress: 100,
-    startedAt: '2026-05-13T08:00:00Z',
-    completedAt: '2026-05-13T09:30:00Z',
-  },
-  {
-    id: 'task-002',
-    title: '开发首页推荐组件',
-    description: '轮播图 + 分类列表',
-    status: 'active',
-    agentId: 'agent-002',
-    agentName: 'Builder',
-    progress: 65,
-    startedAt: '2026-05-13T09:00:00Z',
-  },
-  {
-    id: 'task-003',
-    title: '实现电影详情页',
-    description: '海报、简介、评分、相关推荐',
-    status: 'queued',
-    agentId: 'agent-002',
-    agentName: 'Builder',
-    progress: 0,
-  },
-  {
-    id: 'task-004',
-    title: '集成在线播放器',
-    description: 'Video.js 播放器集成',
-    status: 'pending',
-    agentId: 'agent-003',
-    agentName: 'Builder',
-    progress: 0,
-  },
-  {
-    id: 'task-005',
-    title: '编写 E2E 测试',
-    description: 'Playwright 自动化测试',
-    status: 'ready',
-    agentId: 'agent-004',
-    agentName: 'Verifier',
-    progress: 100,
-    startedAt: '2026-05-13T07:00:00Z',
-    completedAt: '2026-05-13T08:00:00Z',
-  },
-];
-
-const mockAgents: Agent[] = [
-  { id: 'agent-001', name: 'Orchestrator', status: 'idle' },
-  { id: 'agent-002', name: 'Builder', status: 'busy', currentTask: '开发首页推荐组件' },
-  { id: 'agent-003', name: 'Builder-2', status: 'idle' },
-  { id: 'agent-004', name: 'Verifier', status: 'idle' },
-  { id: 'agent-005', name: 'Explorer', status: 'idle' },
-  { id: 'agent-006', name: 'Architect', status: 'idle' },
-];
-
-const mockMessages: Message[] = [
-  {
-    id: 'msg-001',
-    type: 'task_completed',
-    from: 'Builder',
-    to: 'Orchestrator',
-    payload: { taskId: 'task-001' },
-    timestamp: new Date().toISOString(),
-  },
-  {
-    id: 'msg-002',
-    type: 'task_assigned',
-    from: 'Orchestrator',
-    to: 'Builder',
-    payload: { taskId: 'task-002' },
-    timestamp: new Date().toISOString(),
-  },
-];
-
 export function useWebSocket() {
-  const [state, setState] = useState<PlatformState>({
-    tasks: [],
-    agents: [],
-    messages: [],
-    connected: false,
-  });
+  const [state, setState] = useState<PlatformState>(initialState);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const connect = useCallback(() => {
-    const wsUrl = getWebSocketUrl();
-    console.log('Attempting WebSocket connection to:', wsUrl);
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    let ws: WebSocket;
     try {
-      ws = new WebSocket(wsUrl);
-    } catch (err) {
-      console.error('Failed to create WebSocket:', err);
-      // 使用模拟数据
-      setState({
-        tasks: mockTasks,
-        agents: mockAgents,
-        messages: mockMessages,
-        connected: false,
-      });
-      return () => {};
-    }
+      const ws = new WebSocket(getWsUrl());
+      wsRef.current = ws;
 
-    const connectionTimeout = setTimeout(() => {
-      if (ws.readyState !== WebSocket.OPEN) {
-        console.log('WebSocket connection timeout, using mock data');
+      connectTimeoutRef.current = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          ws.close();
+          setState(prev => ({ ...prev, connected: false }));
+        }
+      }, 5000);
+
+      ws.onopen = () => {
+        if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
+        setState(prev => ({ ...prev, connected: true }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          setState(prev => {
+            switch (data.type) {
+              case 'state':
+                return { ...prev, ...data.payload, connected: true };
+              case 'message':
+                return { ...prev, messages: [...prev.messages, data.payload] };
+              case 'project_update':
+                return {
+                  ...prev,
+                  projects: prev.projects.map(p =>
+                    p.id === data.payload.id ? { ...p, ...data.payload } : p
+                  ),
+                  currentProject: prev.currentProject?.id === data.payload.id
+                    ? { ...prev.currentProject, ...data.payload }
+                    : prev.currentProject,
+                };
+              default:
+                return prev;
+            }
+          });
+        } catch {
+          // ignore malformed messages
+        }
+      };
+
+      ws.onclose = () => {
+        if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
+        setState(prev => ({ ...prev, connected: false }));
+        reconnectTimerRef.current = setTimeout(connect, 5000);
+      };
+
+      ws.onerror = () => {
         ws.close();
-        setState((prev) => ({
-          ...prev,
-          tasks: mockTasks,
-          agents: mockAgents,
-          messages: mockMessages,
-          connected: false,
-        }));
-      }
-    }, 5000);
-
-    ws.onopen = () => {
-      clearTimeout(connectionTimeout);
-      setState((prev) => ({ ...prev, connected: true }));
-      console.log('WebSocket connected');
-    };
-
-    ws.onclose = () => {
-      clearTimeout(connectionTimeout);
-      setState((prev) => ({
-        ...prev,
-        connected: false,
-        // 如果还没有数据，使用模拟数据
-        tasks: prev.tasks.length > 0 ? prev.tasks : mockTasks,
-        agents: prev.agents.length > 0 ? prev.agents : mockAgents,
-        messages: prev.messages.length > 0 ? prev.messages : mockMessages,
-      }));
-      console.log('WebSocket disconnected, reconnecting...');
-      setTimeout(connect, 5000);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        handleMessage(data);
-      } catch (err) {
-        console.error('Failed to parse message:', err);
-      }
-    };
-
-    ws.onerror = (err) => {
-      clearTimeout(connectionTimeout);
-      console.error('WebSocket error:', err);
-      // 使用模拟数据
-      setState((prev) => ({
-        ...prev,
-        tasks: mockTasks,
-        agents: mockAgents,
-        messages: mockMessages,
-        connected: false,
-      }));
-    };
-
-    return () => {
-      clearTimeout(connectionTimeout);
-      ws.close();
-    };
+      };
+    } catch {
+      setState(prev => ({ ...prev, connected: false }));
+      reconnectTimerRef.current = setTimeout(connect, 5000);
+    }
   }, []);
 
-  const handleMessage = (data: { type: string; payload: unknown }) => {
-    switch (data.type) {
-      case 'task_assigned':
-      case 'task_completed':
-      case 'task_failed':
-        setState((prev) => ({
-          ...prev,
-          tasks: updateTasks(prev.tasks, data.type, data.payload as Task),
-        }));
-        break;
-      case 'agent_status':
-        setState((prev) => ({
-          ...prev,
-          agents: data.payload as Agent[],
-        }));
-        break;
-      case 'connected':
-        console.log('Server connected:', data.payload);
-        break;
-      default:
-        setState((prev) => ({
-          ...prev,
-          messages: [...prev.messages.slice(-99), data.payload as Message],
-        }));
-    }
-  };
-
   useEffect(() => {
-    const cleanup = connect();
-    return cleanup;
+    connect();
+    return () => {
+      if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      wsRef.current?.close();
+    };
   }, [connect]);
 
-  return state;
-}
+  const sendMessage = useCallback((text: string) => {
+    const userMessage: ChatMessage = {
+      id: `m-${Date.now()}`,
+      role: 'user',
+      content: text,
+      timestamp: new Date().toISOString(),
+    };
 
-function updateTasks(tasks: Task[], type: string, payload: Task): Task[] {
-  const idx = tasks.findIndex((t) => t.id === payload.id);
-  if (idx >= 0) {
-    const updated = [...tasks];
-    updated[idx] = { ...updated[idx], ...payload };
-    return updated;
-  }
-  return [...tasks, payload];
+    setState(prev => ({
+      ...prev,
+      messages: [...prev.messages, userMessage],
+    }));
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'message', content: text }));
+    }
+  }, []);
+
+  return { state, sendMessage };
 }

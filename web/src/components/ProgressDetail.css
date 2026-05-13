@@ -1,0 +1,261 @@
+.progress-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Overview */
+.pd-overview {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.pd-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.pd-overview-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pd-overview-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.pd-overview-bar {
+  height: 6px;
+  background: var(--bg-primary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.pd-overview-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-green));
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+/* Tasks */
+.pd-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pd-task {
+  padding: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: all var(--transition);
+}
+
+.pd-task:hover {
+  border-color: var(--border-light);
+}
+
+.pd-task-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.pd-task-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+}
+
+.pd-done .pd-task-icon {
+  color: var(--accent-green);
+}
+
+.pd-active .pd-task-icon {
+  color: var(--accent);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.pd-failed .pd-task-icon {
+  color: var(--accent-red);
+}
+
+.pd-pending .pd-task-icon {
+  color: var(--text-muted);
+}
+
+.pd-task-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.pd-task-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.pd-task-percent {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  min-width: 36px;
+  text-align: right;
+}
+
+.pd-task-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  padding-left: 26px;
+}
+
+.pd-task-bar {
+  height: 4px;
+  background: var(--bg-primary);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-left: 26px;
+}
+
+.pd-task-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.pd-done .pd-task-fill {
+  background: var(--accent-green);
+}
+
+.pd-active .pd-task-fill {
+  background: var(--accent);
+}
+
+.pd-failed .pd-task-fill {
+  background: var(--accent-red);
+}
+
+.pd-pending .pd-task-fill {
+  background: var(--text-muted);
+}
+
+/* Subtasks */
+.pd-subtasks {
+  margin-top: 10px;
+  margin-left: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.pd-subtask {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pd-subtask-icon {
+  font-size: 10px;
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+
+.pd-done .pd-subtask-icon {
+  color: var(--accent-green);
+}
+
+.pd-active .pd-subtask-icon {
+  color: var(--accent);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.pd-pending .pd-subtask-icon {
+  color: var(--text-muted);
+}
+
+.pd-subtask-name {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.pd-subtask-percent {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 30px;
+  text-align: right;
+}
+
+.pd-subtask-bar {
+  width: 60px;
+  height: 3px;
+  background: var(--bg-primary);
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.pd-subtask-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.pd-done .pd-subtask-fill {
+  background: var(--accent-green);
+}
+
+.pd-active .pd-subtask-fill {
+  background: var(--accent);
+}
+
+.pd-pending .pd-subtask-fill {
+  background: var(--text-muted);
+}
+
+/* Footer */
+.pd-footer {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.pd-report-btn {
+  width: 100%;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.pd-report-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
