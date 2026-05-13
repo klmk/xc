@@ -93,6 +93,19 @@ export interface ToolResult {
 }
 
 /**
+ * Information about a sub-agent spawned by this agent.
+ */
+export interface SubAgentInfo {
+  id: string;
+  name: string;
+  taskId: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  startedAt: string;
+  completedAt?: string;
+  result?: TaskResult;
+}
+
+/**
  * Configuration for creating an Agent.
  */
 export interface AgentConfig {
@@ -112,6 +125,10 @@ export interface AgentConfig {
   temperature?: number;
   /** LLM max tokens override (default: 8192) */
   maxTokens?: number;
+  /** Maximum history entries before auto-compaction (default: 200) */
+  maxHistorySize?: number;
+  /** Whether to auto-compact when history exceeds maxHistorySize (default: false) */
+  autoCompact?: boolean;
 }
 
 /**
@@ -150,8 +167,17 @@ export abstract class AgentBase {
   private status: AgentStatus;
   /** Maximum history entries to keep */
   private maxHistorySize: number;
+  /** Whether to auto-compact when history exceeds maxHistorySize */
+  private autoCompact: boolean;
   /** Active task ID (when busy) */
   private activeTaskId: string | null;
+  /** Sub-agents spawned by this agent */
+  private subAgents: Map<string, SubAgentInfo>;
+  /** Hook handlers for tool use lifecycle */
+  private hookHandlers: {
+    preToolUse?: (toolName: string, params: Record<string, unknown>) => Promise<boolean>;
+    postToolUse?: (toolName: string, params: Record<string, unknown>, result: ToolResult) => Promise<void>;
+  };
 
   constructor(config: AgentConfig, messageBus: MessageBus, logger?: Logger) {
     this.id = config.id ?? randomUUID();
@@ -168,8 +194,11 @@ export abstract class AgentBase {
     this.tools = new Map();
     this.unsubscribers = [];
     this.status = 'uninitialized';
-    this.maxHistorySize = 200;
+    this.maxHistorySize = config.maxHistorySize ?? 200;
+    this.autoCompact = config.autoCompact ?? false;
     this.activeTaskId = null;
+    this.subAgents = new Map();
+    this.hookHandlers = {};
 
     // Register tools
     if (config.tools) {
@@ -295,6 +324,197 @@ export abstract class AgentBase {
     }
   }
 
+  /**
+   * Compress the agent's history to reduce context window usage.
+   * Strategy:
+   *   1. Keep all system prompts
+   *   2. Keep the most recent N entries (configurable, default 20)
+   *   3. Summarize older entries into a single summary entry
+   *   4. Remove tool outputs from old entries (they're usually large)
+   *
+   * @param options.focusHint - Optional hint about what to focus on (e.g., "focus on auth refactor")
+   * @param options.keepRecent - Number of recent entries to keep intact (default 20)
+   * @param options.summarizer - Optional function to summarize old entries. If not provided, a default summarizer is used.
+   * @returns A summary of what was compressed
+   */
+  async compact(options?: {
+    focusHint?: string;
+    keepRecent?: number;
+    summarizer?: (entries: AgentHistoryEntry[]) => Promise<string>;
+  }): Promise<{ entriesBefore: number; entriesAfter: number; summary: string }> {
+    const keepRecent = options?.keepRecent ?? 20;
+    const entriesBefore = this.history.length;
+
+    const systemEntries = this.history.filter((e) => e.role === 'system');
+    const nonSystemEntries = this.history.filter((e) => e.role !== 'system');
+
+    // If history is small enough, nothing to compress
+    if (nonSystemEntries.length <= keepRecent) {
+      return {
+        entriesBefore,
+        entriesAfter: entriesBefore,
+        summary: 'History is within the keep-recent limit; nothing to compress.',
+      };
+    }
+
+    // Split into old (to compress) and recent (to keep intact)
+    const oldEntries = nonSystemEntries.slice(0, -keepRecent);
+    const recentEntries = nonSystemEntries.slice(-keepRecent);
+
+    // Strip large tool outputs from old entries to reduce memory during summarization
+    const strippedOldEntries = oldEntries.map((entry) => {
+      if (entry.role === 'tool' && entry.content.length > 500) {
+        return {
+          ...entry,
+          content: entry.content.substring(0, 500) + '... [truncated for compaction]',
+        };
+      }
+      return entry;
+    });
+
+    // Summarize old entries
+    const summarizer = options?.summarizer ?? this.defaultSummarizer;
+    const summary = await summarizer(strippedOldEntries);
+
+    // Build focus hint prefix if provided
+    const focusPrefix = options?.focusHint
+      ? `[Compaction focus: ${options.focusHint}]\n`
+      : '';
+
+    // Reconstruct history: system entries + compressed summary + recent entries
+    const compressedEntry: AgentHistoryEntry = {
+      role: 'user',
+      content: `${focusPrefix}${summary}`,
+      timestamp: new Date().toISOString(),
+    };
+
+    this.history = [...systemEntries, compressedEntry, ...recentEntries];
+
+    const entriesAfter = this.history.length;
+
+    this.logger.info('History compacted', {
+      entriesBefore,
+      entriesAfter,
+      compressedEntries: oldEntries.length,
+      keptRecent: recentEntries.length,
+    });
+
+    return {
+      entriesBefore,
+      entriesAfter,
+      summary,
+    };
+  }
+
+  /**
+   * Get the current context usage statistics.
+   */
+  getContextStats(): {
+    totalEntries: number;
+    systemEntries: number;
+    userEntries: number;
+    assistantEntries: number;
+    toolEntries: number;
+    estimatedTokens: number; // Rough estimate: ~4 chars per token
+  } {
+    let systemEntries = 0;
+    let userEntries = 0;
+    let assistantEntries = 0;
+    let toolEntries = 0;
+    let totalChars = 0;
+
+    for (const entry of this.history) {
+      totalChars += entry.content.length;
+      switch (entry.role) {
+        case 'system':
+          systemEntries++;
+          break;
+        case 'user':
+          userEntries++;
+          break;
+        case 'assistant':
+          assistantEntries++;
+          break;
+        case 'tool':
+          toolEntries++;
+          break;
+      }
+    }
+
+    return {
+      totalEntries: this.history.length,
+      systemEntries,
+      userEntries,
+      assistantEntries,
+      toolEntries,
+      estimatedTokens: Math.ceil(totalChars / 4),
+    };
+  }
+
+  /**
+   * Default summarizer that creates a concise summary of old history entries.
+   * Groups entries by type, extracts tool names and file paths, and produces
+   * a structured summary string.
+   */
+  private async defaultSummarizer(entries: AgentHistoryEntry[]): Promise<string> {
+    let userCount = 0;
+    let assistantCount = 0;
+    let toolCount = 0;
+    const toolUsage = new Map<string, number>();
+    const filePaths = new Set<string>();
+
+    for (const entry of entries) {
+      switch (entry.role) {
+        case 'user':
+          userCount++;
+          break;
+        case 'assistant':
+          assistantCount++;
+          break;
+        case 'tool':
+          toolCount++;
+          if (entry.toolName) {
+            toolUsage.set(entry.toolName, (toolUsage.get(entry.toolName) ?? 0) + 1);
+          }
+          break;
+      }
+
+      // Extract file paths from content (common patterns)
+      const pathMatches = entry.content.match(/[\w./-]+\.\w{1,5}(?:\.\w+)?/g);
+      if (pathMatches) {
+        for (const p of pathMatches) {
+          // Only consider paths that look like file paths (contain / or .)
+          if (p.includes('/') || p.includes('\\')) {
+            filePaths.add(p);
+          }
+        }
+      }
+    }
+
+    const lines: string[] = ['[Compressed context summary]'];
+    lines.push(`- ${userCount} user messages, ${assistantCount} assistant responses, ${toolCount} tool calls`);
+
+    // Tool usage summary
+    if (toolUsage.size > 0) {
+      const toolParts: string[] = [];
+      for (const [name, count] of toolUsage) {
+        toolParts.push(`${name}(${count})`);
+      }
+      lines.push(`- Tools used: ${toolParts.join(', ')}`);
+    }
+
+    // File paths summary (limit to avoid bloat)
+    if (filePaths.size > 0) {
+      const uniquePaths = Array.from(filePaths).slice(0, 10);
+      lines.push(`- Files discussed: ${uniquePaths.join(', ')}`);
+      if (filePaths.size > 10) {
+        lines.push(`- ... and ${filePaths.size - 10} more files`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+
   // ─── Tool Management ────────────────────────────────────────────────────
 
   /**
@@ -353,6 +573,17 @@ export abstract class AgentBase {
 
     this.logger.debug('Invoking tool', { tool: name, params });
 
+    // Fire pre-tool-use hook; abort if not allowed
+    const allowed = await this.firePreToolUseHook(name, params);
+    if (!allowed) {
+      this.logger.info('Tool use blocked by preToolUse hook', { tool: name });
+      return {
+        success: false,
+        output: '',
+        error: `Tool use blocked by hook: ${name}`,
+      };
+    }
+
     // Record the tool call in history
     const toolCallId = randomUUID();
     this.addHistoryEntry({
@@ -379,6 +610,9 @@ export abstract class AgentBase {
         toolCallId,
         timestamp: new Date().toISOString(),
       });
+
+      // Fire post-tool-use hook
+      await this.firePostToolUseHook(name, params, result);
 
       return result;
     } catch (err: unknown) {
@@ -506,6 +740,75 @@ export abstract class AgentBase {
     };
   }
 
+  // ─── Sub-Agent Lifecycle ───────────────────────────────────────────────
+
+  /**
+   * Get all sub-agents spawned by this agent.
+   */
+  getSubAgents(): ReadonlyArray<SubAgentInfo> {
+    return Array.from(this.subAgents.values());
+  }
+
+  /**
+   * Cancel a running sub-agent by ID.
+   * Marks the sub-agent as cancelled and publishes a cancellation message.
+   */
+  cancelSubAgent(subAgentId: string): void {
+    const subAgent = this.subAgents.get(subAgentId);
+    if (!subAgent) {
+      this.logger.warn('Cannot cancel sub-agent: not found', { subAgentId });
+      return;
+    }
+
+    if (subAgent.status !== 'running') {
+      this.logger.warn('Cannot cancel sub-agent: not running', {
+        subAgentId,
+        status: subAgent.status,
+      });
+      return;
+    }
+
+    subAgent.status = 'cancelled';
+    subAgent.completedAt = new Date().toISOString();
+
+    // Notify the sub-agent via the message bus
+    this.publish('subagent_cancel', subAgentId, {
+      taskId: subAgent.taskId,
+      cancelledBy: this.id,
+    });
+
+    this.logger.info('Sub-agent cancelled', { subAgentId, taskId: subAgent.taskId });
+  }
+
+  /**
+   * Track a newly spawned sub-agent. Called internally when delegating.
+   */
+  protected trackSubAgent(info: SubAgentInfo): void {
+    this.subAgents.set(info.id, info);
+    this.logger.debug('Sub-agent tracked', { id: info.id, name: info.name });
+  }
+
+  /**
+   * Update a sub-agent's status after completion or failure.
+   */
+  protected updateSubAgentStatus(
+    subAgentId: string,
+    status: 'completed' | 'failed' | 'cancelled',
+    result?: TaskResult,
+  ): void {
+    const subAgent = this.subAgents.get(subAgentId);
+    if (!subAgent) {
+      this.logger.warn('Cannot update sub-agent: not found', { subAgentId });
+      return;
+    }
+
+    subAgent.status = status;
+    subAgent.completedAt = new Date().toISOString();
+    if (result) {
+      subAgent.result = result;
+    }
+  }
+
   // ─── Protected Helpers ─────────────────────────────────────────────────
 
   /**
@@ -535,8 +838,17 @@ export abstract class AgentBase {
   protected addHistoryEntry(entry: AgentHistoryEntry): void {
     this.history.push(entry);
 
-    // Enforce max history size (keep system prompts)
-    if (this.history.length > this.maxHistorySize) {
+    // Auto-compact if enabled and history exceeds max size
+    if (this.autoCompact && this.history.length > this.maxHistorySize) {
+      this.compact().catch((err: unknown) => {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        this.logger.error('Auto-compaction failed', { error: errorMessage });
+      });
+      return;
+    }
+
+    // Enforce max history size (keep system prompts) when auto-compact is off
+    if (!this.autoCompact && this.history.length > this.maxHistorySize) {
       const systemEntries = this.history.filter((e) => e.role === 'system');
       const nonSystemEntries = this.history.filter((e) => e.role !== 'system');
       const trimmed = nonSystemEntries.slice(-(this.maxHistorySize - systemEntries.length));
@@ -599,6 +911,50 @@ export abstract class AgentBase {
       logs: logs ?? [`Error: ${error}`],
       error,
     };
+  }
+
+  // ─── Hook Integration ──────────────────────────────────────────────────
+
+  /**
+   * Set hook handlers. Used by the platform to inject hook execution.
+   */
+  setHookHandlers(handlers?: {
+    preToolUse?: (toolName: string, params: Record<string, unknown>) => Promise<boolean>;
+    postToolUse?: (toolName: string, params: Record<string, unknown>, result: ToolResult) => Promise<void>;
+  }): void {
+    this.hookHandlers = handlers ?? {};
+  }
+
+  /**
+   * Fire a preToolUse hook. Returns true if the tool use is allowed.
+   */
+  protected async firePreToolUseHook(toolName: string, params: Record<string, unknown>): Promise<boolean> {
+    if (!this.hookHandlers.preToolUse) {
+      return true;
+    }
+    try {
+      return await this.hookHandlers.preToolUse(toolName, params);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error('preToolUse hook error', { toolName, error: errorMessage });
+      // Default to allowing tool use if hook errors
+      return true;
+    }
+  }
+
+  /**
+   * Fire a postToolUse hook.
+   */
+  protected async firePostToolUseHook(toolName: string, params: Record<string, unknown>, result: ToolResult): Promise<void> {
+    if (!this.hookHandlers.postToolUse) {
+      return;
+    }
+    try {
+      await this.hookHandlers.postToolUse(toolName, params, result);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error('postToolUse hook error', { toolName, error: errorMessage });
+    }
   }
 
   // ─── Private ────────────────────────────────────────────────────────────

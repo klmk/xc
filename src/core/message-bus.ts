@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 // ─── Message Types ───────────────────────────────────────────────────────────
 
 export type MessageType =
+  // Existing (8)
   | 'task_assigned'
   | 'task_completed'
   | 'task_failed'
@@ -25,7 +26,30 @@ export type MessageType =
   | 'test_result'
   | 'review_result'
   | 'human_request'
-  | 'human_response';
+  | 'human_response'
+  // New: Sub-agent management (4)
+  | 'subagent_created'      // Parent notifies that a sub-agent was spawned
+  | 'subagent_result'       // Sub-agent returns its result to parent
+  | 'subagent_failed'       // Sub-agent failed
+  | 'subagent_cancel'       // Request to cancel a running sub-agent
+  // New: Parallel task coordination (4)
+  | 'parallel_task_start'   // A parallel task batch has started
+  | 'parallel_task_progress' // Progress update for a parallel task
+  | 'parallel_task_complete' // All parallel tasks in a batch completed
+  | 'task_dependency_resolved' // A dependency between tasks has been satisfied
+  // New: Project lifecycle (4)
+  | 'project_initialized'
+  | 'spec_generated'
+  | 'spec_updated'
+  | 'verification_started'
+  // New: Checkpoint & rollback (2)
+  | 'checkpoint_created'
+  | 'rollback_executed'
+  ;
+
+// ─── Message Priority ────────────────────────────────────────────────────────
+
+export type MessagePriority = 'low' | 'normal' | 'high' | 'critical';
 
 // ─── Message Envelope ────────────────────────────────────────────────────────
 
@@ -44,6 +68,8 @@ export interface Message<P = unknown> {
   timestamp: string;
   /** Correlation ID for request/response linking */
   correlationId?: string;
+  /** Message priority level */
+  priority?: MessagePriority;
 }
 
 // ─── Subscriber Handler ─────────────────────────────────────────────────────
@@ -77,12 +103,12 @@ export class MessageBus extends EventEmitter {
   private defaultTimeout: number;
   private history: Message[];
   private maxHistory: number;
-  private logger: { debug: (msg: string, data?: unknown) => void } | null;
+  private logger: { debug: (msg: string, data?: unknown) => void; warn: (msg: string, data?: unknown) => void } | null;
 
   constructor(options?: {
     defaultTimeout?: number;
     maxHistory?: number;
-    logger?: { debug: (msg: string, data?: unknown) => void };
+    logger?: { debug: (msg: string, data?: unknown) => void; warn: (msg: string, data?: unknown) => void };
   }) {
     super();
     this.handlers = new Map();
@@ -143,6 +169,33 @@ export class MessageBus extends EventEmitter {
       payload,
       timestamp: new Date().toISOString(),
       correlationId,
+    };
+
+    this.deliver(message);
+    return message;
+  }
+
+  /**
+   * Publish a message with an explicit priority level.
+   * Works the same as `publish` but sets the priority on the message.
+   */
+  publishPrioritized<P = unknown>(
+    type: MessageType,
+    from: string,
+    to: string,
+    payload: P,
+    priority: MessagePriority,
+    correlationId?: string,
+  ): Message<P> {
+    const message: Message<P> = {
+      id: randomUUID(),
+      type,
+      from,
+      to,
+      payload,
+      timestamp: new Date().toISOString(),
+      correlationId,
+      priority,
     };
 
     this.deliver(message);
@@ -243,6 +296,54 @@ export class MessageBus extends EventEmitter {
   // ─── Lifecycle ──────────────────────────────────────────────────────────
 
   /**
+   * Wait for messages of the given types to arrive within the timeout period.
+   * Returns all matching messages that arrive before the timeout expires.
+   */
+  async waitForMessages(
+    types: MessageType[],
+    timeout?: number,
+  ): Promise<Message[]> {
+    const collected: Message[] = [];
+    const effectiveTimeout = timeout ?? this.defaultTimeout;
+
+    return new Promise<Message[]>((resolve) => {
+      const timer = setTimeout(() => {
+        // Remove all temporary subscriptions on timeout
+        for (const type of types) {
+          unsubscribers.get(type)?.();
+        }
+        resolve(collected);
+      }, effectiveTimeout);
+
+      const unsubscribers = new Map<string, () => void>();
+
+      for (const type of types) {
+        const unsub = this.subscribe(type, (msg: Message) => {
+          collected.push(msg);
+          // If we have collected at least one message for every requested type,
+          // resolve early
+          const collectedTypes = new Set(collected.map((m) => m.type));
+          if (types.every((t) => collectedTypes.has(t))) {
+            clearTimeout(timer);
+            for (const [, unsubFn] of unsubscribers) {
+              unsubFn();
+            }
+            resolve(collected);
+          }
+        });
+        unsubscribers.set(type, unsub);
+      }
+    });
+  }
+
+  /**
+   * Get the number of currently pending (unresolved) requests.
+   */
+  getPendingRequestCount(): number {
+    return this.pendingRequests.size;
+  }
+
+  /**
    * Reject all pending requests and clear all handlers.
    */
   shutdown(): void {
@@ -268,6 +369,11 @@ export class MessageBus extends EventEmitter {
     }
 
     this.logger?.debug('Message delivered', { id: message.id, type: message.type, from: message.from, to: message.to });
+
+    // Log high-priority messages at warn level for visibility
+    if (message.priority === 'critical' || message.priority === 'high') {
+      this.logger?.warn(`High-priority message delivered (${message.priority})`, { id: message.id, type: message.type, from: message.from, to: message.to, priority: message.priority });
+    }
 
     // Emit as EventEmitter event (for programmatic listeners)
     this.emit('message', message);

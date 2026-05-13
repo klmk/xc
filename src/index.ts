@@ -8,16 +8,13 @@
  */
 
 import { resolve } from 'node:path';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import chalk from 'chalk';
 import ora from 'ora';
 
 import { MessageBus } from './core/message-bus.js';
 import { Logger } from './core/logger.js';
-import { StateManager } from './core/state-manager.js';
-import { HookManager } from './core/hooks.js';
-import { TaskExecutor } from './core/task-executor.js';
-import { ProjectConfig, loadProjectConfig } from './core/project-config.js';
+import { ProjectConfigLoader } from './core/project-config.js';
 import { LLMClient } from './tools/llm-client.js';
 import { FileSystemTool } from './tools/file-system.js';
 import { GitClient } from './tools/git-client.js';
@@ -47,7 +44,7 @@ class AIDevPlatform {
 
   constructor(config: PlatformConfig) {
     this.config = config;
-    this.logger = new Logger({ verbose: config.verbose });
+    this.logger = new Logger({ minLevel: config.verbose ? 'debug' : 'info' });
   }
 
   /**
@@ -69,18 +66,12 @@ class AIDevPlatform {
 
       // 2. 加载项目配置
       spinner.text = '加载项目配置...';
-      const projectConfig = loadProjectConfig(projectPath);
+      const projectConfig = await ProjectConfigLoader.load(projectPath);
       this.logger.info(`技术栈: ${JSON.stringify(projectConfig.techStack)}`);
 
       // 3. 初始化核心基础设施
       spinner.text = '初始化消息总线...';
       const messageBus = new MessageBus();
-      const stateManager = new StateManager(projectPath);
-      const hookManager = new HookManager(projectConfig.hooks || {});
-      const taskExecutor = new TaskExecutor({
-        maxConcurrency: this.config.maxConcurrency,
-        logger: this.logger,
-      });
 
       // 4. 初始化工具
       spinner.text = '初始化工具链...';
@@ -108,23 +99,19 @@ class AIDevPlatform {
       // 5. 创建所有 Agent（每个有独立上下文）
       spinner.text = '启动 Agent 团队...';
 
-      const orchestrator = new OrchestratorAgent({
+      const orchestrator = new OrchestratorAgent(
+        {},
         messageBus,
         llm,
         fs,
         git,
-        sandbox,
-        stateManager,
-        hookManager,
-        taskExecutor,
-        logger: this.logger.createScoped('Orchestrator'),
-        projectConfig,
-      });
+        this.logger,
+      );
 
       const explorer = new ExplorerAgent({
         messageBus,
         llm,
-        logger: this.logger.createScoped('Explorer'),
+        logger: this.logger,
         projectConfig,
       });
 
@@ -132,36 +119,35 @@ class AIDevPlatform {
         messageBus,
         llm,
         fs,
-        logger: this.logger.createScoped('Architect'),
+        logger: this.logger,
         projectConfig,
       });
 
-      const developer = new DeveloperAgent({
+      const developer = new DeveloperAgent(
+        {},
         messageBus,
         llm,
         fs,
         git,
-        sandbox,
-        logger: this.logger.createScoped('Builder'),
-        projectConfig,
-      });
+        this.logger,
+      );
 
-      const verifier = new VerifierAgent({
+      const verifier = new VerifierAgent(
+        { projectRoot: projectPath },
         messageBus,
         llm,
         fs,
         sandbox,
-        logger: this.logger.createScoped('Verifier'),
-        projectConfig,
-      });
+        this.logger,
+      );
 
-      const evolver = new EvolverAgent({
+      const evolver = new EvolverAgent(
+        {},
         messageBus,
         llm,
         fs,
-        logger: this.logger.createScoped('Evolver'),
-        projectConfig,
-      });
+        this.logger,
+      );
 
       // 6. 初始化所有 Agent
       await Promise.all([
@@ -182,10 +168,16 @@ class AIDevPlatform {
       this.setupMessageLogging(messageBus);
 
       // 8. 运行项目经理Agent
-      const result = await orchestrator.manageProject({
-        requirement,
-        projectName,
-        projectPath,
+      const result = await orchestrator.execute({
+        id: 'manage-project',
+        type: 'manage_project',
+        title: `Manage project: ${projectName}`,
+        description: requirement,
+        payload: {
+          requirement,
+          projectName,
+          projectPath,
+        },
       });
 
       // 9. 输出结果
@@ -272,8 +264,8 @@ class AIDevPlatform {
   private printBanner(): void {
     console.log('');
     console.log(chalk.blue.bold('  ╔══════════════════════════════════════╗'));
-    console.log(chalk.blue.bold('  ║     AI Dev Platform v3.0            ║'));
-    console.log(chalk.blue.bold('  ║     AI原生五角色自动化开发           ║'));
+    console.log(chalk.blue.bold('  ║     AI Dev Platform v4.0            ║'));
+    console.log(chalk.blue.bold('  ║     AI原生五角色自动化开发 + 并行任务 + 完整快照           ║'));
     console.log(chalk.blue.bold('  ╚══════════════════════════════════════╝'));
     console.log('');
   }

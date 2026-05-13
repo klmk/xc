@@ -5,12 +5,49 @@
  * of the agent lifecycle by running shell commands or JavaScript functions at
  * well-defined points:
  *
- *   - SessionStart   : when a development session begins
- *   - PreToolUse     : before a tool is invoked
- *   - PostToolUse    : after a tool has been invoked
- *   - PreCommit      : before a git commit
- *   - PostTest       : after tests have been run
- *   - OnError        : when an error occurs
+ *   Session lifecycle:
+ *     - sessionStart            : when a development session begins or resumes
+ *     - sessionEnd              : when a development session terminates
+ *     - setup                   : project initialisation (--init)
+ *
+ *   Turn lifecycle:
+ *     - userPromptSubmit        : after user submits prompt, before Claude processes
+ *     - userPromptExpansion     : after prompt expansion
+ *     - stop                    : Claude finishes response
+ *     - stopFailure             : turn ended due to API error
+ *
+ *   Tool execution:
+ *     - preToolUse              : before a tool is invoked (CAN BLOCK)
+ *     - postToolUse             : after a tool succeeds
+ *     - postToolUseFailure      : after a tool fails
+ *     - postToolBatch           : after parallel tool batch completes
+ *     - permissionRequest       : permission dialog appears
+ *     - permissionDenied        : tool denied by auto-mode classifier
+ *
+ *   Sub-agent lifecycle:
+ *     - subagentStart           : sub-agent created
+ *     - subagentStop            : sub-agent completes
+ *
+ *   Context management:
+ *     - preCompact              : before context compression
+ *     - postCompact             : after context compression
+ *
+ *   Task lifecycle:
+ *     - taskCreated             : task created via TaskCreate
+ *     - taskCompleted           : task marked complete
+ *
+ *   File & config:
+ *     - instructionsLoaded      : CLAUDE.md / rules loaded
+ *     - configChange            : config changed during session
+ *     - cwdChanged              : working directory changed
+ *     - fileChanged             : monitored file changed on disk
+ *
+ *   Worktree:
+ *     - worktreeCreate          : worktree created
+ *     - worktreeRemove          : worktree removed
+ *
+ *   Notification:
+ *     - notification            : Claude Code sends notification
  *
  * Hooks can:
  *   - Allow an action to proceed (exit 0)
@@ -33,12 +70,68 @@ const execAsync = promisify(exec);
 // ─── Hook Types ──────────────────────────────────────────────────────────────
 
 export type HookType =
-  | 'sessionStart'
-  | 'preToolUse'
-  | 'postToolUse'
-  | 'preCommit'
-  | 'postTest'
-  | 'onError';
+  // Session lifecycle (3)
+  | 'sessionStart'          // Session begins or resumes
+  | 'sessionEnd'            // Session terminates
+  | 'setup'                 // Project initialization (--init)
+
+  // Turn lifecycle (4)
+  | 'userPromptSubmit'      // After user submits prompt, before Claude processes
+  | 'userPromptExpansion'   // After prompt expansion
+  | 'stop'                  // Claude finishes response
+  | 'stopFailure'           // Turn ended due to API error
+
+  // Tool execution (6)
+  | 'preToolUse'            // Before tool executes (CAN BLOCK)
+  | 'postToolUse'           // After tool succeeds
+  | 'postToolUseFailure'    // After tool fails
+  | 'postToolBatch'         // After parallel tool batch completes
+  | 'permissionRequest'     // Permission dialog appears
+  | 'permissionDenied'      // Tool denied by auto-mode classifier
+
+  // Sub-agent lifecycle (2)
+  | 'subagentStart'         // Sub-agent created
+  | 'subagentStop'          // Sub-agent completes
+
+  // Context management (2)
+  | 'preCompact'            // Before context compression
+  | 'postCompact'           // After context compression
+
+  // Task lifecycle (2)
+  | 'taskCreated'           // Task created via TaskCreate
+  | 'taskCompleted'         // Task marked complete
+
+  // File & config (4)
+  | 'instructionsLoaded'    // CLAUDE.md / rules loaded
+  | 'configChange'          // Config changed during session
+  | 'cwdChanged'            // Working directory changed
+  | 'fileChanged'           // Monitored file changed on disk
+
+  // Worktree (2)
+  | 'worktreeCreate'        // Worktree created
+  | 'worktreeRemove'        // Worktree removed
+
+  // Notification (1)
+  | 'notification';         // Claude Code sends notification
+
+/**
+ * Backward-compatible aliases for legacy hook type names.
+ * These map old names to their canonical new equivalents.
+ */
+export const HOOK_TYPE_ALIASES: Readonly<Record<string, HookType>> = {
+  /** @deprecated Use 'sessionStart' instead */
+  SessionStart: 'sessionStart',
+  /** @deprecated Use 'preToolUse' instead */
+  PreToolUse: 'preToolUse',
+  /** @deprecated Use 'postToolUse' instead */
+  PostToolUse: 'postToolUse',
+  /** @deprecated Use 'preCommit' mapped to 'preToolUse' with matchTool */
+  PreCommit: 'preToolUse',
+  /** @deprecated Use 'postTest' mapped to 'postToolUse' with matchTool */
+  PostTest: 'postToolUse',
+  /** @deprecated Use 'stopFailure' instead */
+  OnError: 'stopFailure',
+};
 
 // ─── Hook Definition ─────────────────────────────────────────────────────────
 
@@ -58,6 +151,8 @@ export interface HookDefinition {
   blocking?: boolean;
   /** Glob pattern to match specific tool names (only for preToolUse / postToolUse) */
   matchTool?: string;
+  /** Generic matcher expression, e.g. "Bash(rm *)" or "Write(src/**)" */
+  matcher?: string;
 }
 
 // ─── Hook Context ────────────────────────────────────────────────────────────
@@ -84,7 +179,7 @@ export interface HookContext {
     passed: number;
     failed: number;
   };
-  /** Error information (onError only) */
+  /** Error information (onError / stopFailure only) */
   error?: {
     message: string;
     stack?: string;
@@ -95,6 +190,26 @@ export interface HookContext {
   cwd?: string;
   /** Environment variables to pass to shell commands */
   env?: Record<string, string>;
+  /** Which agent triggered the hook */
+  agentId?: string;
+  /** Human-readable agent name */
+  agentName?: string;
+  /** Sub-agent ID (for subagentStart / subagentStop) */
+  subagentId?: string;
+  /** Task ID (for taskCreated / taskCompleted) */
+  taskId?: string;
+  /** Task title */
+  taskTitle?: string;
+  /** File path (for fileChanged, preToolUse with file ops) */
+  filePath?: string;
+  /** Worktree path (for worktree events) */
+  worktreePath?: string;
+  /** Compression focus hint (for preCompact) */
+  compactHint?: string;
+  /** Notification content */
+  notificationMessage?: string;
+  /** For permissionDenied: can set retry: true */
+  permissionDecision?: 'allow' | 'deny' | 'retry';
 }
 
 // ─── Hook Result ─────────────────────────────────────────────────────────────
@@ -129,12 +244,41 @@ export class HookRegistry {
 
     // Initialise empty arrays for all hook types
     const types: HookType[] = [
+      // Session lifecycle
       'sessionStart',
+      'sessionEnd',
+      'setup',
+      // Turn lifecycle
+      'userPromptSubmit',
+      'userPromptExpansion',
+      'stop',
+      'stopFailure',
+      // Tool execution
       'preToolUse',
       'postToolUse',
-      'preCommit',
-      'postTest',
-      'onError',
+      'postToolUseFailure',
+      'postToolBatch',
+      'permissionRequest',
+      'permissionDenied',
+      // Sub-agent lifecycle
+      'subagentStart',
+      'subagentStop',
+      // Context management
+      'preCompact',
+      'postCompact',
+      // Task lifecycle
+      'taskCreated',
+      'taskCompleted',
+      // File & config
+      'instructionsLoaded',
+      'configChange',
+      'cwdChanged',
+      'fileChanged',
+      // Worktree
+      'worktreeCreate',
+      'worktreeRemove',
+      // Notification
+      'notification',
     ];
     for (const type of types) {
       this.hooks.set(type, []);
@@ -158,22 +302,64 @@ export class HookRegistry {
   /**
    * Register multiple hooks at once from a partial config object.
    * Mirrors the shape of `HooksConfig` from `project-config.ts`.
+   *
+   * Accepts all 26 hook types as optional arrays of HookDefinition.
    */
   registerFromConfig(config: {
     sessionStart?: HookDefinition[];
+    sessionEnd?: HookDefinition[];
+    setup?: HookDefinition[];
+    userPromptSubmit?: HookDefinition[];
+    userPromptExpansion?: HookDefinition[];
+    stop?: HookDefinition[];
+    stopFailure?: HookDefinition[];
     preToolUse?: HookDefinition[];
     postToolUse?: HookDefinition[];
-    preCommit?: HookDefinition[];
-    postTest?: HookDefinition[];
-    onError?: HookDefinition[];
+    postToolUseFailure?: HookDefinition[];
+    postToolBatch?: HookDefinition[];
+    permissionRequest?: HookDefinition[];
+    permissionDenied?: HookDefinition[];
+    subagentStart?: HookDefinition[];
+    subagentStop?: HookDefinition[];
+    preCompact?: HookDefinition[];
+    postCompact?: HookDefinition[];
+    taskCreated?: HookDefinition[];
+    taskCompleted?: HookDefinition[];
+    instructionsLoaded?: HookDefinition[];
+    configChange?: HookDefinition[];
+    cwdChanged?: HookDefinition[];
+    fileChanged?: HookDefinition[];
+    worktreeCreate?: HookDefinition[];
+    worktreeRemove?: HookDefinition[];
+    notification?: HookDefinition[];
   }): void {
     const mapping: Array<[HookType, HookDefinition[] | undefined]> = [
       ['sessionStart', config.sessionStart],
+      ['sessionEnd', config.sessionEnd],
+      ['setup', config.setup],
+      ['userPromptSubmit', config.userPromptSubmit],
+      ['userPromptExpansion', config.userPromptExpansion],
+      ['stop', config.stop],
+      ['stopFailure', config.stopFailure],
       ['preToolUse', config.preToolUse],
       ['postToolUse', config.postToolUse],
-      ['preCommit', config.preCommit],
-      ['postTest', config.postTest],
-      ['onError', config.onError],
+      ['postToolUseFailure', config.postToolUseFailure],
+      ['postToolBatch', config.postToolBatch],
+      ['permissionRequest', config.permissionRequest],
+      ['permissionDenied', config.permissionDenied],
+      ['subagentStart', config.subagentStart],
+      ['subagentStop', config.subagentStop],
+      ['preCompact', config.preCompact],
+      ['postCompact', config.postCompact],
+      ['taskCreated', config.taskCreated],
+      ['taskCompleted', config.taskCompleted],
+      ['instructionsLoaded', config.instructionsLoaded],
+      ['configChange', config.configChange],
+      ['cwdChanged', config.cwdChanged],
+      ['fileChanged', config.fileChanged],
+      ['worktreeCreate', config.worktreeCreate],
+      ['worktreeRemove', config.worktreeRemove],
+      ['notification', config.notification],
     ];
 
     for (const [type, defs] of mapping) {
@@ -186,7 +372,7 @@ export class HookRegistry {
   }
 
   /**
-   * Remove all hooks for a given type.
+   * Remove all hooks for a given type, or all hooks if no type is specified.
    */
   clear(hookType?: HookType): void {
     if (hookType) {
@@ -233,6 +419,13 @@ export class HookRegistry {
       // For tool-specific hooks, check the matchTool glob
       if (def.matchTool && context.toolName) {
         if (!this.matchGlob(def.matchTool, context.toolName)) {
+          continue;
+        }
+      }
+
+      // For generic matcher expressions
+      if (def.matcher) {
+        if (!this.matchExpression(def.matcher, context)) {
           continue;
         }
       }
@@ -294,6 +487,8 @@ export class HookRegistry {
     };
   }
 
+  // ─── Convenience: Session lifecycle ─────────────────────────────────────
+
   /**
    * Convenience: run sessionStart hooks.
    */
@@ -304,6 +499,19 @@ export class HookRegistry {
       projectData,
     });
   }
+
+  /**
+   * Convenience: run sessionEnd hooks.
+   */
+  async runSessionEnd(cwd?: string, projectData?: Record<string, unknown>): Promise<HookResult> {
+    return this.run('sessionEnd', {
+      hookType: 'sessionEnd',
+      cwd: cwd ?? this.defaultCwd,
+      projectData,
+    });
+  }
+
+  // ─── Convenience: Tool execution ────────────────────────────────────────
 
   /**
    * Convenience: run preToolUse hooks.
@@ -339,12 +547,16 @@ export class HookRegistry {
     });
   }
 
+  // ─── Convenience: Legacy hooks ──────────────────────────────────────────
+
   /**
    * Convenience: run preCommit hooks.
+   * Maps to preToolUse with toolName 'git_commit'.
    */
   async runPreCommit(cwd?: string): Promise<HookResult> {
-    return this.run('preCommit', {
-      hookType: 'preCommit',
+    return this.run('preToolUse', {
+      hookType: 'preToolUse',
+      toolName: 'git_commit',
       cwd: cwd ?? this.defaultCwd,
     });
   }
@@ -356,8 +568,9 @@ export class HookRegistry {
     testResults: { total: number; passed: number; failed: number },
     cwd?: string,
   ): Promise<HookResult> {
-    return this.run('postTest', {
-      hookType: 'postTest',
+    return this.run('postToolUse', {
+      hookType: 'postToolUse',
+      toolName: 'test_runner',
       testResults,
       cwd: cwd ?? this.defaultCwd,
     });
@@ -365,17 +578,148 @@ export class HookRegistry {
 
   /**
    * Convenience: run onError hooks.
+   * Maps to stopFailure for backward compatibility.
    */
   async runOnError(
     error: Error,
     cwd?: string,
   ): Promise<HookResult> {
-    return this.run('onError', {
-      hookType: 'onError',
+    return this.run('stopFailure', {
+      hookType: 'stopFailure',
       error: {
         message: error.message,
         stack: error.stack,
       },
+      cwd: cwd ?? this.defaultCwd,
+    });
+  }
+
+  // ─── Convenience: Sub-agent lifecycle ───────────────────────────────────
+
+  /**
+   * Convenience: run subagentStart hooks.
+   */
+  async runSubagentStart(agentId: string, agentName?: string, cwd?: string): Promise<HookResult> {
+    return this.run('subagentStart', {
+      hookType: 'subagentStart',
+      agentId,
+      agentName,
+      cwd: cwd ?? this.defaultCwd,
+    });
+  }
+
+  /**
+   * Convenience: run subagentStop hooks.
+   */
+  async runSubagentStop(
+    agentId: string,
+    result?: { success: boolean; output?: string; error?: string },
+    cwd?: string,
+  ): Promise<HookResult> {
+    return this.run('subagentStop', {
+      hookType: 'subagentStop',
+      agentId,
+      toolResult: result ? { success: result.success, output: result.output ?? '', error: result.error } : undefined,
+      cwd: cwd ?? this.defaultCwd,
+    });
+  }
+
+  // ─── Convenience: Context management ────────────────────────────────────
+
+  /**
+   * Convenience: run preCompact hooks.
+   */
+  async runPreCompact(hint?: string, cwd?: string): Promise<HookResult> {
+    return this.run('preCompact', {
+      hookType: 'preCompact',
+      compactHint: hint,
+      cwd: cwd ?? this.defaultCwd,
+    });
+  }
+
+  /**
+   * Convenience: run postCompact hooks.
+   */
+  async runPostCompact(summary?: string, cwd?: string): Promise<HookResult> {
+    return this.run('postCompact', {
+      hookType: 'postCompact',
+      toolResult: summary ? { success: true, output: summary } : undefined,
+      cwd: cwd ?? this.defaultCwd,
+    });
+  }
+
+  // ─── Convenience: Task lifecycle ────────────────────────────────────────
+
+  /**
+   * Convenience: run taskCreated hooks.
+   */
+  async runTaskCreated(taskId: string, taskTitle?: string, cwd?: string): Promise<HookResult> {
+    return this.run('taskCreated', {
+      hookType: 'taskCreated',
+      taskId,
+      taskTitle,
+      cwd: cwd ?? this.defaultCwd,
+    });
+  }
+
+  /**
+   * Convenience: run taskCompleted hooks.
+   */
+  async runTaskCompleted(taskId: string, result?: string, cwd?: string): Promise<HookResult> {
+    return this.run('taskCompleted', {
+      hookType: 'taskCompleted',
+      taskId,
+      toolResult: result ? { success: true, output: result } : undefined,
+      cwd: cwd ?? this.defaultCwd,
+    });
+  }
+
+  // ─── Convenience: File & config ─────────────────────────────────────────
+
+  /**
+   * Convenience: run fileChanged hooks.
+   */
+  async runFileChanged(filePath: string, cwd?: string): Promise<HookResult> {
+    return this.run('fileChanged', {
+      hookType: 'fileChanged',
+      filePath,
+      cwd: cwd ?? this.defaultCwd,
+    });
+  }
+
+  // ─── Convenience: Worktree ──────────────────────────────────────────────
+
+  /**
+   * Convenience: run worktreeCreate hooks.
+   */
+  async runWorktreeCreate(worktreePath: string, cwd?: string): Promise<HookResult> {
+    return this.run('worktreeCreate', {
+      hookType: 'worktreeCreate',
+      worktreePath,
+      cwd: cwd ?? this.defaultCwd,
+    });
+  }
+
+  /**
+   * Convenience: run worktreeRemove hooks.
+   */
+  async runWorktreeRemove(worktreePath: string, cwd?: string): Promise<HookResult> {
+    return this.run('worktreeRemove', {
+      hookType: 'worktreeRemove',
+      worktreePath,
+      cwd: cwd ?? this.defaultCwd,
+    });
+  }
+
+  // ─── Convenience: Notification ──────────────────────────────────────────
+
+  /**
+   * Convenience: run notification hooks.
+   */
+  async runNotification(message: string, cwd?: string): Promise<HookResult> {
+    return this.run('notification', {
+      hookType: 'notification',
+      notificationMessage: message,
       cwd: cwd ?? this.defaultCwd,
     });
   }
@@ -394,7 +738,7 @@ export class HookRegistry {
       return this.executeShellHook(def.command, def.timeout ?? 30_000, context);
     }
 
-    // No command or function – treat as a no-op
+    // No command or function -- treat as a no-op
     return { allowed: true };
   }
 
@@ -446,11 +790,11 @@ export class HookRegistry {
             modifiedParams: parsed.modifiedParams,
           };
         } catch {
-          // Not valid JSON – fall through to exit-code logic
+          // Not valid JSON -- fall through to exit-code logic
         }
       }
 
-      // No JSON output – use exit code
+      // No JSON output -- use exit code
       return {
         allowed: true,
         message: stderr.trim() || trimmed || undefined,
@@ -497,5 +841,55 @@ export class HookRegistry {
 
     const regex = new RegExp(`^${regexStr}$`, 'i');
     return regex.test(str);
+  }
+
+  /**
+   * Match a generic matcher expression against the hook context.
+   *
+   * Supports patterns like:
+   *   - "Bash(rm *)"       -- matches toolName "Bash" with toolParams containing "rm ..."
+   *   - "Write(src/**)"    -- matches toolName "Write" with filePath matching "src/**"
+   *   - "Read(*.test.ts)"  -- matches toolName "Read" with filePath matching "*.test.ts"
+   *   - "Bash"             -- matches toolName "Bash" (no argument constraint)
+   *
+   * If no toolName is present in the context, the match fails.
+   */
+  private matchExpression(matcher: string, context: HookContext): boolean {
+    // Parse the matcher: "ToolName(pattern)" or just "ToolName"
+    const match = /^(\w+)(?:\((.+)\))?$/.exec(matcher);
+    if (!match) {
+      this.logger.debug(`Invalid matcher expression: ${matcher}`);
+      return false;
+    }
+
+    const [, toolPattern, argPattern] = match;
+
+    // Must match the tool name
+    if (!context.toolName || !this.matchGlob(toolPattern, context.toolName)) {
+      return false;
+    }
+
+    // If there is an argument pattern, match it against filePath or toolParams
+    if (argPattern) {
+      // Try filePath first (common for file operations)
+      if (context.filePath && this.matchGlob(argPattern, context.filePath)) {
+        return true;
+      }
+
+      // Try matching against the first string-like param (e.g. Bash command)
+      if (context.toolParams) {
+        for (const value of Object.values(context.toolParams)) {
+          if (typeof value === 'string' && this.matchGlob(argPattern, value)) {
+            return true;
+          }
+        }
+      }
+
+      // No match on the argument pattern
+      return false;
+    }
+
+    // Tool name matched and no argument constraint
+    return true;
   }
 }

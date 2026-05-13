@@ -60,15 +60,46 @@ export interface HookDefinition {
   timeout?: number;
   /** Whether the hook can block the action (default false) */
   blocking?: boolean;
+  /** Generic matcher expression */
+  matcher?: string;
 }
 
 export interface HooksConfig {
+  // Session lifecycle
   sessionStart?: HookDefinition[];
+  sessionEnd?: HookDefinition[];
+  setup?: HookDefinition[];
+  // Turn lifecycle
+  userPromptSubmit?: HookDefinition[];
+  userPromptExpansion?: HookDefinition[];
+  stop?: HookDefinition[];
+  stopFailure?: HookDefinition[];
+  // Tool execution
   preToolUse?: HookDefinition[];
   postToolUse?: HookDefinition[];
-  preCommit?: HookDefinition[];
-  postTest?: HookDefinition[];
-  onError?: HookDefinition[];
+  postToolUseFailure?: HookDefinition[];
+  postToolBatch?: HookDefinition[];
+  permissionRequest?: HookDefinition[];
+  permissionDenied?: HookDefinition[];
+  // Sub-agent
+  subagentStart?: HookDefinition[];
+  subagentStop?: HookDefinition[];
+  // Context management
+  preCompact?: HookDefinition[];
+  postCompact?: HookDefinition[];
+  // Task lifecycle
+  taskCreated?: HookDefinition[];
+  taskCompleted?: HookDefinition[];
+  // File & config
+  instructionsLoaded?: HookDefinition[];
+  configChange?: HookDefinition[];
+  cwdChanged?: HookDefinition[];
+  fileChanged?: HookDefinition[];
+  // Worktree
+  worktreeCreate?: HookDefinition[];
+  worktreeRemove?: HookDefinition[];
+  // Notification
+  notification?: HookDefinition[];
 }
 
 // ─── Task Executor Configuration ─────────────────────────────────────────────
