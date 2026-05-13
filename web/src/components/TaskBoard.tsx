@@ -7,12 +7,12 @@ interface Props {
 }
 
 const COLUMNS = [
-  { id: 'pending', title: 'Pending', color: '#6b7280' },
-  { id: 'queued', title: 'Queued', color: '#f59e0b' },
-  { id: 'active', title: 'Active', color: '#3b82f6' },
-  { id: 'ready', title: 'Ready', color: '#8b5cf6' },
-  { id: 'done', title: 'Done', color: '#10b981' },
-  { id: 'failed', title: 'Failed', color: '#ef4444' },
+  { id: 'pending', title: '待处理', color: '#6b7280' },
+  { id: 'queued', title: '排队中', color: '#f59e0b' },
+  { id: 'active', title: '进行中', color: '#3b82f6' },
+  { id: 'ready', title: '待审核', color: '#8b5cf6' },
+  { id: 'done', title: '已完成', color: '#10b981' },
+  { id: 'failed', title: '已失败', color: '#ef4444' },
 ];
 
 function TaskBoard({ tasks }: Props) {

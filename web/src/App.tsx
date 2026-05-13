@@ -10,10 +10,10 @@ function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>AI Dev Platform</h1>
+        <h1>AI 开发平台</h1>
         <div className="status">
           <span className={`indicator ${connected ? 'connected' : 'disconnected'}`} />
-          {connected ? 'Connected' : 'Disconnected'}
+          {connected ? '已连接' : '未连接'}
         </div>
       </header>
       <main className="main">
