@@ -7,10 +7,11 @@ interface Props {
 
 function TaskCard({ task }: Props) {
   return (
-    <div className="task-card">
+    <div className="task-card" data-status={task.status}>
       <div className="task-title">{task.title}</div>
+      {task.description && <div className="task-desc">{task.description}</div>}
       <div className="task-meta">
-        <span className="agent">{task.agentName}</span>
+        <span className="agent-tag">{task.agentName}</span>
         {task.progress > 0 && (
           <div className="progress">
             <div className="progress-bar" style={{ width: `${task.progress}%` }} />
