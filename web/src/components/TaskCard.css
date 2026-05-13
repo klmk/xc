@@ -1,0 +1,53 @@
+.task-card {
+  background: #1a1a2e;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid #0f3460;
+}
+
+.task-card:hover {
+  border-color: #e94560;
+}
+
+.task-title {
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.task-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.agent {
+  background: #16213e;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+}
+
+.progress {
+  width: 60px;
+  height: 4px;
+  background: #16213e;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: #e94560;
+  transition: width 0.3s;
+}
+
+.task-error {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #ef4444;
+}

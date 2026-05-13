@@ -1,0 +1,22 @@
+{
+  "name": "todo-app-example",
+  "version": "1.0.0",
+  "description": "A simple todo app",
+  "techStack": {
+    "language": "typescript",
+    "frontend": "react",
+    "packageManager": "npm"
+  },
+  "codingStandards": {
+    "indentStyle": "space",
+    "indentSize": 2,
+    "semi": true,
+    "singleQuotes": true
+  },
+  "testFramework": "vitest",
+  "hooks": {
+    "preToolUse": [
+      { "command": "echo 'Tool use blocked for safety'", "blocking": false }
+    ]
+  }
+}

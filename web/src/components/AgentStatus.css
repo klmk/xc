@@ -1,0 +1,64 @@
+.agent-status h3 {
+  margin-bottom: 1rem;
+  color: #e94560;
+}
+
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.no-agents {
+  color: #666;
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 1rem;
+}
+
+.agent-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem;
+  background: #1a1a2e;
+  border-radius: 6px;
+}
+
+.agent-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.agent-item.idle .agent-indicator {
+  background: #6b7280;
+}
+
+.agent-item.busy .agent-indicator {
+  background: #3b82f6;
+  animation: pulse 1s infinite;
+}
+
+.agent-item.error .agent-indicator {
+  background: #ef4444;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.agent-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-name {
+  font-weight: 500;
+}
+
+.agent-task {
+  font-size: 0.75rem;
+  color: #888;
+}

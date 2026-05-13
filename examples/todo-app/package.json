@@ -1,7 +1,7 @@
 {
-  "name": "ai-dev-platform-web",
+  "name": "todo-app-example",
   "version": "1.0.0",
-  "type": "module",
+  "description": "A simple todo app for testing the AI Dev Platform",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
